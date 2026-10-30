@@ -62,7 +62,7 @@ func TestSymbolizationPath(t *testing.T) {
 	os.MkdirAll(filepath.Join(tempdir, "pprof", "binaries", "fg"), 0700)
 	os.Create(filepath.Join(tempdir, "pprof", "binaries", "fg", "hij10001.debug"))
 
-	obj := testObj{tempdir}
+	obj := testObj{home: tempdir}
 	os.Setenv(homeEnv(), tempdir)
 	for _, tc := range []struct {
 		env, file, buildID, want string
@@ -99,6 +99,28 @@ func TestSymbolizationPath(t *testing.T) {
 	}
 	os.Setenv(homeEnv(), saveHome)
 	os.Setenv("PPROF_BINARY_PATH", savePath)
+}
+
+func TestLocateBinariesAbsolutePath(t *testing.T) {
+	t.Setenv("PPROF_BINARY_PATH", "")
+	home := t.TempDir()
+	t.Setenv(homeEnv(), home)
+
+	var opened []string
+	obj := testObj{home: home, opened: &opened}
+	p := &profile.Profile{
+		Mapping: []*profile.Mapping{
+			{
+				File:    "/usr/bin/binary",
+				BuildID: "fedcb10000",
+			},
+		},
+	}
+	locateBinaries(p, &source{}, obj, &proftest.TestUI{T: t})
+
+	if len(opened) == 0 || opened[0] != "/usr/bin/binary" {
+		t.Fatalf("first opened file = %v, want /usr/bin/binary", opened)
+	}
 }
 
 func TestCollectMappingSources(t *testing.T) {
@@ -159,10 +181,14 @@ func TestUnsourceMappings(t *testing.T) {
 }
 
 type testObj struct {
-	home string
+	home   string
+	opened *[]string
 }
 
 func (o testObj) Open(file string, start, limit, offset uint64, relocationSymbol string) (plugin.ObjFile, error) {
+	if o.opened != nil {
+		*o.opened = append(*o.opened, file)
+	}
 	switch file {
 	case "/alternate/architecture/binary":
 		return testFile{file, "abcde10001"}, nil
