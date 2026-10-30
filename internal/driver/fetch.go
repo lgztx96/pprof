@@ -426,6 +426,29 @@ mapping:
 			dirName = filepath.Dir(noVolumeFile)
 		}
 
+		// Try the original absolute path from the profile before searching
+		// PPROF_BINARY_PATH. This is especially useful for heap profiles that
+		// contain MAPPED_LIBRARIES entries with their original filesystem paths.
+		tryFile := func(name string) bool {
+			f, err := obj.Open(name, m.Start, m.Limit, m.Offset, m.KernelRelocationSymbol)
+			if err != nil {
+				return false
+			}
+			defer f.Close()
+			fileBuildID := f.BuildID()
+			if m.BuildID != "" && m.BuildID != fileBuildID {
+				ui.PrintErr("Ignoring local file " + name + ": build-id mismatch (" + m.BuildID + " != " + fileBuildID + ")")
+				return false
+			}
+			// Explicitly do not update KernelRelocationSymbol --
+			// the local file is most likely missing it.
+			m.File = name
+			return true
+		}
+		if filepath.IsAbs(m.File) && tryFile(m.File) {
+			continue mapping
+		}
+
 		for _, path := range filepath.SplitList(searchPath) {
 			var fileNames []string
 			if m.BuildID != "" {
@@ -453,17 +476,8 @@ mapping:
 				fileNames = append(fileNames, filepath.Join(path, "usr", "lib", "debug", dirName, baseName+".debug"))
 			}
 			for _, name := range fileNames {
-				if f, err := obj.Open(name, m.Start, m.Limit, m.Offset, m.KernelRelocationSymbol); err == nil {
-					defer f.Close()
-					fileBuildID := f.BuildID()
-					if m.BuildID != "" && m.BuildID != fileBuildID {
-						ui.PrintErr("Ignoring local file " + name + ": build-id mismatch (" + m.BuildID + " != " + fileBuildID + ")")
-					} else {
-						// Explicitly do not update KernelRelocationSymbol --
-						// the new local file name is most likely missing it.
-						m.File = name
-						continue mapping
-					}
+				if tryFile(name) {
+					continue mapping
 				}
 			}
 		}
