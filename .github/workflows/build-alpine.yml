@@ -1,0 +1,76 @@
+name: Build Alpine (musl)
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: linux/${{ matrix.goarch }} (musl)
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: golang:1.26-alpine
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            runner: ubuntu-24.04
+            musl_loader: /lib/ld-musl-x86_64.so.1
+          - goarch: arm64
+            runner: ubuntu-24.04-arm
+            musl_loader: /lib/ld-musl-aarch64.so.1
+
+    steps:
+      - name: Install build tools
+        run: apk add --no-cache build-base binutils
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build
+        env:
+          CGO_ENABLED: '1'
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -trimpath -buildvcs=false \
+            -ldflags='-s -w -linkmode=external -extldflags=-static' \
+            -o pprof ./.
+
+      - name: Verify ELF
+        env:
+          MUSL_LOADER: ${{ matrix.musl_loader }}
+        run: |
+          file pprof
+          readelf -h pprof
+          if readelf -l pprof | grep -q 'Requesting program interpreter'; then
+            echo "Expected a statically linked musl binary, but found an ELF interpreter."
+            exit 1
+          fi
+          ldd pprof || true
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          install -m 0755 pprof dist/pprof-linux-${{ matrix.goarch }}-musl
+          tar -C dist -czf dist/pprof-linux-${{ matrix.goarch }}-musl.tar.gz pprof-linux-${{ matrix.goarch }}-musl
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pprof-linux-${{ matrix.goarch }}-musl
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Upload release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
