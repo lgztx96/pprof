@@ -1,0 +1,35 @@
+name: Build Alpine (musl)
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container:
+      image: golang:1.26-alpine
+    steps:
+      - name: Install build tools
+        run: apk add --no-cache build-base binutils
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Build
+        env:
+          CGO_ENABLED: '1'
+          GOOS: linux
+          GOARCH: amd64
+        run: go build -trimpath -buildvcs=false -ldflags='-s -w -linkmode=external -extldflags=-static' -o pprof ./
+      - name: Package
+        run: tar czf pprof-linux-amd64-musl.tar.gz pprof
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pprof-linux-amd64-musl
+          path: pprof-linux-amd64-musl.tar.gz
