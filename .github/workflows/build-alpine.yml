@@ -2,7 +2,7 @@ name: Build Alpine (musl)
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/absolute-mapping-path]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
