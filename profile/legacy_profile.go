@@ -33,11 +33,11 @@ var (
 	countRE      = regexp.MustCompile(`\A(\d+) @(( 0x[0-9a-f]+)+)\z`)
 
 	heapHeaderRE = regexp.MustCompile(`heap profile: *(\d+): *(\d+) *\[ *(\d+): *(\d+) *\] *@ *(heap[_a-z0-9]*)/?(\d*)`)
-	heapSampleRE = regexp.MustCompile(`(-?\d+): *(-?\d+) *\[ *(\d+): *(\d+) *] @([ x0-9a-f]*)`)
+	heapSampleRE = regexp.MustCompile(`(-?\d+): *(-?\d+) *\[ *(\d+): *(\d+) *] @([ x0-9a-fA-F]*)\z`)
 
-	contentionSampleRE = regexp.MustCompile(`(\d+) *(\d+) @([ x0-9a-f]*)`)
+	contentionSampleRE = regexp.MustCompile(`(\d+) *(\d+) @([ x0-9a-fA-F]*)\z`)
 
-	hexNumberRE = regexp.MustCompile(`0x[0-9a-f]+`)
+	hexNumberRE = regexp.MustCompile(`0[xX][0-9a-fA-F]+`)
 
 	growthHeaderRE = regexp.MustCompile(`heap profile: *(\d+): *(\d+) *\[ *(\d+): *(\d+) *\] @ growthz?`)
 
