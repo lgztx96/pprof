@@ -17,6 +17,9 @@ type config struct {
 	// Filename for file-based output formats, stdout by default.
 	Output string `json:"-"`
 
+	// Diagnostic logging.
+	Verbose bool `json:"-"`
+
 	// Display options.
 	CallTree            bool    `json:"call_tree,omitempty"`
 	RelativePercentages bool    `json:"relative_percentages,omitempty"`
@@ -117,6 +120,7 @@ func init() {
 
 		// Following fields are also not placed in URLs.
 		"Output":     "output",
+		"Verbose":    "verbose",
 		"SourcePath": "source_path",
 		"TrimPath":   "trim_path",
 		"DivideBy":   "divide_by",
