@@ -23,8 +23,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"flag"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,7 +30,7 @@ import (
 
 var (
 	countStartRE = regexp.MustCompile(`\A(\S+) profile: total \d+\z`)
-	countRE      = regexp.MustCompile(`\A(\d+) @(( 0x[0-9a-fA-F]+)+)\z`)
+	countRE      = regexp.MustCompile(`\A(\d+) @(( 0x[0-9a-f]+)+)\z`)
 
 	heapHeaderRE = regexp.MustCompile(`heap profile: *(\d+): *(\d+) *\[ *(\d+): *(\d+) *\] *@ *(heap[_a-z0-9]*)/?(\d*)`)
 	heapSampleRE = regexp.MustCompile(`(-?\d+): *(-?\d+) *\[ *(\d+): *(\d+) *] @([ x0-9a-fA-F]*)\z`)
@@ -70,12 +68,6 @@ var (
 	// ... file:line] msg...
 	logInfoRE = regexp.MustCompile(`^[^\[\]]+:[0-9]+]\s`)
 )
-
-func mappingDebugf(format string, args ...interface{}) {
-	if verbose := flag.Lookup("verbose"); verbose != nil && verbose.Value.String() == "true" {
-		fmt.Fprintf(os.Stderr, "[verbose] "+format+"\n", args...)
-	}
-}
 
 func isSpaceOrComment(line string) bool {
 	trimmed := strings.TrimSpace(line)
@@ -196,10 +188,6 @@ func (p *Profile) remapFunctionIDs() {
 // up as a bottleneck, evaluate sorting the mappings and doing a
 // binary search, which would make it O(N*log(M)).
 func (p *Profile) remapMappingIDs() {
-	mappingDebugf("remapMappingIDs: locations=%d mappings_before=%d", len(p.Location), len(p.Mapping))
-	for i, m := range p.Mapping {
-		mappingDebugf("mapping[%d] id=%d range=[%#x,%#x) offset=%#x file=%q build_id=%q", i, m.ID, m.Start, m.Limit, m.Offset, m.File, m.BuildID)
-	}
 	// Some profile handlers will incorrectly set regions for the main
 	// executable if its section is remapped. Fix them through heuristics.
 
@@ -226,25 +214,15 @@ func (p *Profile) remapMappingIDs() {
 	// Associate each location with an address to the corresponding
 	// mapping. Create fake mapping if a suitable one isn't found.
 	var fake *Mapping
-	var loggedLocations int
-	var unmatchedLocations int
 nextLocation:
 	for _, l := range p.Location {
 		a := l.Address
 		if l.Mapping != nil || a == 0 {
 			continue
 		}
-		logLocation := loggedLocations < 30
-		if logLocation {
-			mappingDebugf("location id=%d address=%#x: searching mappings", l.ID, a)
-			loggedLocations++
-		}
 		for _, m := range p.Mapping {
 			if m.Start <= a && a < m.Limit {
 				l.Mapping = m
-				if logLocation {
-					mappingDebugf("location address=%#x matched mapping id=%d range=[%#x,%#x) offset=%#x file=%q", a, m.ID, m.Start, m.Limit, m.Offset, m.File)
-				}
 				continue nextLocation
 			}
 		}
@@ -255,17 +233,12 @@ nextLocation:
 				m.Start -= m.Offset
 				m.Offset = 0
 				l.Mapping = m
-				if logLocation {
-					mappingDebugf("location address=%#x matched adjusted mapping id=%d range=[%#x,%#x) file=%q", a, m.ID, m.Start, m.Limit, m.File)
-				}
 				continue nextLocation
 			}
 		}
 		// If there is still no mapping, create a fake one.
 		// This is important for the Go legacy handler, which produced
 		// no mappings.
-		unmatchedLocations++
-		mappingDebugf("location address=%#x did not match any mapping; creating/using fake mapping", a)
 		if fake == nil {
 			fake = &Mapping{
 				ID:    1,
@@ -279,10 +252,6 @@ nextLocation:
 	// Reset all mapping IDs.
 	for i, m := range p.Mapping {
 		m.ID = uint64(i + 1)
-	}
-	mappingDebugf("remapMappingIDs finished: locations=%d mappings_after=%d unmatched_locations=%d", len(p.Location), len(p.Mapping), unmatchedLocations)
-	for i, m := range p.Mapping {
-		mappingDebugf("final mapping[%d] id=%d range=[%#x,%#x) offset=%#x file=%q build_id=%q", i, m.ID, m.Start, m.Limit, m.Offset, m.File, m.BuildID)
 	}
 }
 
@@ -1012,15 +981,10 @@ func parseProcMapsFromScanner(s *bufio.Scanner) ([]*Mapping, error) {
 	const delimiter = "="
 	r := strings.NewReplacer()
 	for s.Scan() {
-		rawLine := s.Text()
-		line := r.Replace(removeLoggingInfo(rawLine))
+		line := r.Replace(removeLoggingInfo(s.Text()))
 		m, err := parseMappingEntry(line)
-		if os.Getenv("PPROF_DEBUG_MAPPINGS") != "" {
-			mappingDebugf("maps line raw=%q normalized=%q", rawLine, line)
-		}
 		if err != nil {
 			if err == errUnrecognized {
-				mappingDebugf("maps line ignored as unrecognized: %q", line)
 				// Recognize assignments of the form: attr=value, and replace
 				// $attr with value on subsequent mappings.
 				if attr := strings.SplitN(line, delimiter, 2); len(attr) == 2 {
@@ -1033,11 +997,9 @@ func parseProcMapsFromScanner(s *bufio.Scanner) ([]*Mapping, error) {
 			return nil, err
 		}
 		if m == nil {
-			mappingDebugf("maps entry skipped (non-executable): %q", line)
 			continue
 		}
 		mapping = append(mapping, m)
-		mappingDebugf("maps entry parsed: range=[%#x,%#x) offset=%#x file=%q build_id=%q", m.Start, m.Limit, m.Offset, m.File, m.BuildID)
 	}
 	if err := s.Err(); err != nil {
 		return nil, err
