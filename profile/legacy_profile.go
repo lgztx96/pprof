@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
+	"flag"
 	"regexp"
 	"strconv"
 	"strings"
@@ -71,8 +71,8 @@ var (
 )
 
 func mappingDebugf(format string, args ...interface{}) {
-	if os.Getenv("PPROF_DEBUG_MAPPINGS") != "" {
-		fmt.Fprintf(os.Stderr, "[mapping-debug] "+format+"\n", args...)
+	if verbose := flag.Lookup("verbose"); verbose != nil && verbose.Value.String() == "true" {
+		fmt.Fprintf(os.Stderr, "[verbose] "+format+"\n", args...)
 	}
 }
 
