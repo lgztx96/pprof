@@ -54,12 +54,18 @@ var demangleFunction = Demangle
 // local binaries; if the source is a URL it attempts to get any
 // missed entries using symbolz.
 func (s *Symbolizer) Symbolize(mode string, sources plugin.MappingSources, p *profile.Profile) error {
+	if s.Verbose {
+		s.UI.PrintErr("[verbose] Symbolize called: mode=", mode, " mappings=", len(p.Mapping), " locations=", len(p.Location), " source_mappings=", len(sources))
+	}
 	remote, local, fast, force, demanglerMode := true, true, false, false, ""
 	for _, o := range strings.Split(strings.ToLower(mode), ":") {
 		switch o {
 		case "":
 			continue
 		case "none", "no":
+			if s.Verbose {
+				s.UI.PrintErr("[verbose] Symbolization skipped: mode disables symbolization")
+			}
 			return nil
 		case "local":
 			remote, local = false, true
@@ -174,21 +180,27 @@ func doLocalSymbolizeInternal(prof *profile.Profile, fast, force bool, obj plugi
 	}
 
 	missingBinaries := false
+	openedMappings := 0
+	symbolizedLocations := 0
 	mappingLocs := map[*profile.Mapping][]*profile.Location{}
 	for _, l := range prof.Location {
 		mappingLocs[l.Mapping] = append(mappingLocs[l.Mapping], l)
 	}
 	for midx, m := range prof.Mapping {
 		locs := mappingLocs[m]
+		log("Mapping %d: file=%q build_id=%q locations=%d has_functions=%t has_filenames=%t has_line_numbers=%t", m.ID, m.File, m.BuildID, len(locs), m.HasFunctions, m.HasFilenames, m.HasLineNumbers)
 		if len(locs) == 0 {
 			// The mapping is dangling and has no locations pointing to it.
+			log("  skipped: mapping has no locations")
 			continue
 		}
 		// Do not attempt to re-symbolize a mapping that has already been symbolized.
 		if !force && (m.HasFunctions || m.HasFilenames || m.HasLineNumbers) {
+			log("  skipped: mapping already has symbol information (use :force to override)")
 			continue
 		}
 		if m.File == "" {
+			log("  skipped: mapping filename is empty")
 			if midx == 0 {
 				ui.PrintErr("Main binary filename not available.")
 				continue
@@ -198,11 +210,13 @@ func doLocalSymbolizeInternal(prof *profile.Profile, fast, force bool, obj plugi
 		}
 		if m.Unsymbolizable() {
 			// Skip well-known system mappings
+			log("  skipped: mapping is marked unsymbolizable")
 			continue
 		}
 		if m.BuildID == "" {
 			if u, err := url.Parse(m.File); err == nil && u.IsAbs() && strings.Contains(strings.ToLower(u.Scheme), "http") {
 				// Skip mappings pointing to a source URL
+				log("  skipped: mapping points to remote source URL %q", m.File)
 				continue
 			}
 		}
@@ -221,14 +235,23 @@ func doLocalSymbolizeInternal(prof *profile.Profile, fast, force bool, obj plugi
 		}
 		log("  obj.Open succeeded: file=%q build_id=%q", f.Name(), f.BuildID())
 		if fid := f.BuildID(); m.BuildID != "" && fid != "" && fid != m.BuildID {
+			log("  skipped: build ID mismatch (profile=%q file=%q)", m.BuildID, fid)
 			ui.PrintErr("Local symbolization failed for ", name, ": build ID mismatch")
 			f.Close()
 			continue
 		}
-		symbolizeOneMappingVerbose(m, locs, f, addFunction, ui, verbose)
+		openedMappings++
+		for _, l := range locs {
+			before := len(l.Line)
+			symbolizeOneMappingVerbose(m, []*profile.Location{l}, f, addFunction, ui, verbose)
+			if len(l.Line) > 0 && (before == 0 || len(l.Line) != before) {
+				symbolizedLocations++
+			}
+		}
 		f.Close()
 	}
 
+	log("Local symbolization finished: opened_mappings=%d symbolized_locations=%d total_mappings=%d total_locations=%d", openedMappings, symbolizedLocations, len(prof.Mapping), len(prof.Location))
 	if missingBinaries {
 		ui.PrintErr("Some binary filenames not available. Symbolization may be incomplete.\n" +
 			"Try setting PPROF_BINARY_PATH to the search path for local binaries.")
