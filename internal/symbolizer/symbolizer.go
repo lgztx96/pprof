@@ -181,7 +181,6 @@ func doLocalSymbolizeInternal(prof *profile.Profile, fast, force bool, obj plugi
 
 	missingBinaries := false
 	openedMappings := 0
-	symbolizedLocations := 0
 	mappingLocs := map[*profile.Mapping][]*profile.Location{}
 	for _, l := range prof.Location {
 		mappingLocs[l.Mapping] = append(mappingLocs[l.Mapping], l)
@@ -241,17 +240,11 @@ func doLocalSymbolizeInternal(prof *profile.Profile, fast, force bool, obj plugi
 			continue
 		}
 		openedMappings++
-		for _, l := range locs {
-			before := len(l.Line)
-			symbolizeOneMappingVerbose(m, []*profile.Location{l}, f, addFunction, ui, verbose)
-			if len(l.Line) > 0 && (before == 0 || len(l.Line) != before) {
-				symbolizedLocations++
-			}
-		}
+		symbolizeOneMappingVerbose(m, locs, f, addFunction, ui, verbose)
 		f.Close()
 	}
 
-	log("Local symbolization finished: opened_mappings=%d symbolized_locations=%d total_mappings=%d total_locations=%d", openedMappings, symbolizedLocations, len(prof.Mapping), len(prof.Location))
+	log("Local symbolization finished: opened_mappings=%d total_mappings=%d total_locations=%d", openedMappings, len(prof.Mapping), len(prof.Location))
 	if missingBinaries {
 		ui.PrintErr("Some binary filenames not available. Symbolization may be incomplete.\n" +
 			"Try setting PPROF_BINARY_PATH to the search path for local binaries.")
