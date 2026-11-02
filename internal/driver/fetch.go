@@ -409,6 +409,13 @@ func unsourceMappings(p *profile.Profile) {
 // locateBinaries searches for binary files listed in the profile and, if found,
 // updates the profile accordingly.
 func locateBinaries(p *profile.Profile, s *source, obj plugin.ObjTool, ui plugin.UI) {
+	verbose := currentConfig().Verbose
+	log := func(format string, args ...interface{}) {
+		if verbose {
+			ui.PrintErr("[verbose] " + fmt.Sprintf(format, args...))
+		}
+	}
+
 	// Construct search path to examine
 	searchPath := os.Getenv("PPROF_BINARY_PATH")
 	if searchPath == "" {
@@ -417,6 +424,7 @@ func locateBinaries(p *profile.Profile, s *source, obj plugin.ObjTool, ui plugin
 	}
 mapping:
 	for _, m := range p.Mapping {
+		log("Mapping %d: file=%q build_id=%q start=%#x limit=%#x offset=%#x", m.ID, m.File, m.BuildID, m.Start, m.Limit, m.Offset)
 		var noVolumeFile string
 		var baseName string
 		var dirName string
@@ -430,26 +438,36 @@ mapping:
 		// PPROF_BINARY_PATH. This is especially useful for heap profiles that
 		// contain MAPPED_LIBRARIES entries with their original filesystem paths.
 		tryFile := func(name string) bool {
+			log("Trying %q", name)
 			f, err := obj.Open(name, m.Start, m.Limit, m.Offset, m.KernelRelocationSymbol)
 			if err != nil {
+				log("  open failed: %v", err)
 				return false
 			}
 			defer f.Close()
 			fileBuildID := f.BuildID()
+			log("  open succeeded: build_id=%q", fileBuildID)
 			if m.BuildID != "" && m.BuildID != fileBuildID {
+				log("  rejected: build-id mismatch (profile=%q file=%q)", m.BuildID, fileBuildID)
 				ui.PrintErr("Ignoring local file " + name + ": build-id mismatch (" + m.BuildID + " != " + fileBuildID + ")")
 				return false
 			}
 			// Explicitly do not update KernelRelocationSymbol --
 			// the local file is most likely missing it.
 			m.File = name
+			log("  selected %q", name)
 			return true
 		}
-		if filepath.IsAbs(m.File) && tryFile(m.File) {
-			continue mapping
+		if filepath.IsAbs(m.File) {
+			log("Trying original absolute mapping path")
+			if tryFile(m.File) {
+				continue mapping
+			}
 		}
 
+		log("Searching PPROF_BINARY_PATH=%q", searchPath)
 		for _, path := range filepath.SplitList(searchPath) {
+			log("Search directory %q", path)
 			var fileNames []string
 			if m.BuildID != "" {
 				fileNames = []string{filepath.Join(path, m.BuildID, baseName)}
@@ -481,6 +499,7 @@ mapping:
 				}
 			}
 		}
+		log("No binary found for mapping %q (build_id=%q)", m.File, m.BuildID)
 	}
 	if len(p.Mapping) == 0 {
 		// If there are no mappings, add a fake mapping to attempt symbolization.
