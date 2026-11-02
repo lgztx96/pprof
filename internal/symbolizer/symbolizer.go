@@ -37,6 +37,12 @@ type Symbolizer struct {
 	Obj       plugin.ObjTool
 	UI        plugin.UI
 	Transport http.RoundTripper
+	Verbose   bool
+}
+
+// SetVerbose enables diagnostic logging for local symbolization.
+func (s *Symbolizer) SetVerbose(verbose bool) {
+	s.Verbose = verbose
 }
 
 // test taps for dependency injection
@@ -80,7 +86,16 @@ func (s *Symbolizer) Symbolize(mode string, sources plugin.MappingSources, p *pr
 	var err error
 	if local {
 		// Symbolize locally using binutils.
-		if err = localSymbolize(p, fast, force, s.Obj, s.UI); err != nil {
+		if s.Verbose {
+			s.UI.PrintErr("[verbose] Symbolization mode: ", mode)
+			if tool, ok := s.Obj.(fmt.Stringer); ok {
+				s.UI.PrintErr("[verbose] Symbolization tools: ", tool.String())
+			}
+			err = doLocalSymbolizeVerbose(p, fast, force, s.Obj, s.UI)
+		} else {
+			err = localSymbolize(p, fast, force, s.Obj, s.UI)
+		}
+		if err != nil {
 			s.UI.PrintErr("local symbolization: " + err.Error())
 		}
 	}
@@ -127,6 +142,20 @@ func statusCodeError(resp *http.Response) error {
 // in a profile. mode enables some options to control
 // symbolization.
 func doLocalSymbolize(prof *profile.Profile, fast, force bool, obj plugin.ObjTool, ui plugin.UI) error {
+	return doLocalSymbolizeInternal(prof, fast, force, obj, ui, false)
+}
+
+func doLocalSymbolizeVerbose(prof *profile.Profile, fast, force bool, obj plugin.ObjTool, ui plugin.UI) error {
+	return doLocalSymbolizeInternal(prof, fast, force, obj, ui, true)
+}
+
+func doLocalSymbolizeInternal(prof *profile.Profile, fast, force bool, obj plugin.ObjTool, ui plugin.UI, verbose bool) error {
+	log := func(format string, args ...interface{}) {
+		if verbose {
+			ui.PrintErr("[verbose] " + fmt.Sprintf(format, args...))
+		}
+	}
+	log("Local symbolization started: fast=%t force=%t mappings=%d locations=%d", fast, force, len(prof.Mapping), len(prof.Location))
 	if fast {
 		if bu, ok := obj.(*binutils.Binutils); ok {
 			bu.SetFastSymbolization(true)
@@ -182,18 +211,21 @@ func doLocalSymbolize(prof *profile.Profile, fast, force bool, obj plugin.ObjToo
 		if m.BuildID != "" {
 			name += fmt.Sprintf(" (build ID %s)", m.BuildID)
 		}
+		log("Opening mapping %d: file=%q start=%#x limit=%#x offset=%#x build_id=%q locations=%d", m.ID, m.File, m.Start, m.Limit, m.Offset, m.BuildID, len(locs))
 		f, err := obj.Open(m.File, m.Start, m.Limit, m.Offset, m.KernelRelocationSymbol)
 		if err != nil {
+			log("  obj.Open failed: %v", err)
 			ui.PrintErr("Local symbolization failed for ", name, ": ", err)
 			missingBinaries = true
 			continue
 		}
+		log("  obj.Open succeeded: file=%q build_id=%q", f.Name(), f.BuildID())
 		if fid := f.BuildID(); m.BuildID != "" && fid != "" && fid != m.BuildID {
 			ui.PrintErr("Local symbolization failed for ", name, ": build ID mismatch")
 			f.Close()
 			continue
 		}
-		symbolizeOneMapping(m, locs, f, addFunction)
+		symbolizeOneMappingVerbose(m, locs, f, addFunction, ui, verbose)
 		f.Close()
 	}
 
@@ -205,11 +237,21 @@ func doLocalSymbolize(prof *profile.Profile, fast, force bool, obj plugin.ObjToo
 }
 
 func symbolizeOneMapping(m *profile.Mapping, locs []*profile.Location, obj plugin.ObjFile, addFunction func(*profile.Function) *profile.Function) {
+	symbolizeOneMappingVerbose(m, locs, obj, addFunction, nil, false)
+}
+
+func symbolizeOneMappingVerbose(m *profile.Mapping, locs []*profile.Location, obj plugin.ObjFile, addFunction func(*profile.Function) *profile.Function, ui plugin.UI, verbose bool) {
 	for _, l := range locs {
 		stack, err := obj.SourceLine(l.Address)
 		if err != nil || len(stack) == 0 {
+			if verbose {
+				ui.PrintErr("[verbose] SourceLine failed: mapping=", m.ID, " address=", fmt.Sprintf("%#x", l.Address), " frames=", len(stack), " error=", err)
+			}
 			// No answers from addr2line.
 			continue
+		}
+		if verbose {
+			ui.PrintErr("[verbose] SourceLine succeeded: mapping=", m.ID, " address=", fmt.Sprintf("%#x", l.Address), " frames=", len(stack))
 		}
 
 		l.Line = make([]profile.Line, len(stack))
