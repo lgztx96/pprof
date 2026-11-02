@@ -233,14 +233,17 @@ nextLocation:
 		if l.Mapping != nil || a == 0 {
 			continue
 		}
-		if loggedLocations < 30 {
+		logLocation := loggedLocations < 30
+		if logLocation {
 			mappingDebugf("location id=%d address=%#x: searching mappings", l.ID, a)
 			loggedLocations++
 		}
 		for _, m := range p.Mapping {
 			if m.Start <= a && a < m.Limit {
 				l.Mapping = m
-				mappingDebugf("location address=%#x matched mapping id=%d range=[%#x,%#x) offset=%#x file=%q", a, m.ID, m.Start, m.Limit, m.Offset, m.File)
+				if logLocation {
+					mappingDebugf("location address=%#x matched mapping id=%d range=[%#x,%#x) offset=%#x file=%q", a, m.ID, m.Start, m.Limit, m.Offset, m.File)
+				}
 				continue nextLocation
 			}
 		}
@@ -251,6 +254,9 @@ nextLocation:
 				m.Start -= m.Offset
 				m.Offset = 0
 				l.Mapping = m
+				if logLocation {
+					mappingDebugf("location address=%#x matched adjusted mapping id=%d range=[%#x,%#x) file=%q", a, m.ID, m.Start, m.Limit, m.File)
+				}
 				continue nextLocation
 			}
 		}
