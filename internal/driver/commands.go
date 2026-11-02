@@ -123,6 +123,8 @@ var pprofCommands = commands{
 
 // configHelp contains help text per configuration parameter.
 var configHelp = map[string]string{
+	"verbose": "Log binary lookup diagnostics to stderr",
+
 	// Filename for file-based output formats, stdout by default.
 	"output": helpText("Output filename for file-based outputs"),
 
